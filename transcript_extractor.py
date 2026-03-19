@@ -2,7 +2,7 @@ import re
 import sys
 from urllib.parse import urlparse, parse_qs
 
-import yt_dlp
+from pytubefix import Playlist, YouTube
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import (
     TranscriptsDisabled,
@@ -64,19 +64,10 @@ def get_transcript_text(video_id):
     return None
 
 
-YDL_OPTS = {
-    'quiet': True,
-    'no_warnings': True,
-    'extract_flat': True,
-    'skip_download': True,
-}
-
-
 def get_video_info(url):
     try:
-        with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
-            info = ydl.extract_info(url, download=False)
-            return info.get('title'), info.get('id')
+        yt = YouTube(url)
+        return yt.title, yt.video_id
     except Exception as e:
         video_id = extract_video_id(url)
         if video_id:
@@ -112,13 +103,10 @@ def process_single_video(url):
 
 
 def process_playlist(url):
-    with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
-        info = ydl.extract_info(url, download=False)
-
-    playlist_title = info.get('title', 'playlist')
-    entries = [e for e in info.get('entries', []) if e]
+    playlist = Playlist(url)
+    playlist_title = playlist.title or 'playlist'
     filename = sanitize_filename(playlist_title) + '.txt'
-    total = len(entries)
+    total = len(playlist.video_urls)
 
     print(f'פלייליסט: {playlist_title}')
     print(f'מספר סרטונים: {total}')
@@ -128,9 +116,12 @@ def process_playlist(url):
     fail_count = 0
 
     with open(filename, 'w', encoding='utf-8') as f:
-        for i, entry in enumerate(entries, 1):
-            video_id = entry.get('id')
-            title = entry.get('title')
+        for i, video_url in enumerate(playlist.video_urls, 1):
+            try:
+                title, video_id = get_video_info(video_url)
+            except Exception:
+                video_id = extract_video_id(video_url)
+                title = None
 
             display_title = title or video_id or f'סרטון {i}'
             print(f'[{i}/{total}] {display_title}...', end=' ', flush=True)
