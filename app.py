@@ -158,6 +158,59 @@ def url_type(url):
     return 'invalid'
 
 
+def get_transcript_via_ytdlp(video_id):
+    import tempfile
+    import os
+    import glob
+
+    url = f'https://www.youtube.com/watch?v={video_id}'
+    with tempfile.TemporaryDirectory() as tmpdir:
+        opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True,
+            'writesubtitles': True,
+            'writeautomaticsub': True,
+            'subtitleslangs': ['he', 'iw', 'en'],
+            'subtitlesformat': 'vtt',
+            'outtmpl': os.path.join(tmpdir, '%(id)s'),
+            'ignoreerrors': True,
+        }
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl.download([url])
+        except Exception:
+            pass
+
+        vtt_files = glob.glob(os.path.join(tmpdir, '*.vtt'))
+        if not vtt_files:
+            return None
+
+        for lang in LANGUAGE_PRIORITY:
+            for f in vtt_files:
+                if f'.{lang}.' in f:
+                    return _parse_vtt(f)
+
+        return _parse_vtt(vtt_files[0])
+
+
+def _parse_vtt(filepath):
+    import re as _re
+    with open(filepath, encoding='utf-8') as f:
+        content = f.read()
+    content = _re.sub(r'WEBVTT.*?\n\n', '', content, count=1)
+    content = _re.sub(r'\d{2}:\d{2}:\d{2}\.\d{3} --> \d{2}:\d{2}:\d{2}\.\d{3}.*?\n', '', content)
+    content = _re.sub(r'<[^>]+>', '', content)
+    lines = []
+    seen = set()
+    for line in content.split('\n'):
+        line = line.strip()
+        if line and line not in seen:
+            seen.add(line)
+            lines.append(line)
+    return ' '.join(lines) if lines else None
+
+
 def get_transcript_text(video_id):
     ytt_api = YouTubeTranscriptApi()
 
@@ -167,9 +220,9 @@ def get_transcript_text(video_id):
     except NoTranscriptFound:
         pass
     except (TranscriptsDisabled, VideoUnavailable):
-        return None
+        pass
     except Exception:
-        return None
+        pass
 
     try:
         transcript_list = ytt_api.list(video_id)
@@ -179,7 +232,7 @@ def get_transcript_text(video_id):
     except Exception:
         pass
 
-    return None
+    return get_transcript_via_ytdlp(video_id)
 
 
 def get_video_info(url):
