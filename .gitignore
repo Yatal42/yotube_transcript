@@ -4,3 +4,4 @@ __pycache__/
 *.txt
 !requirements.txt
 .DS_Store
+transcript_extractor.py

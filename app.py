@@ -2,13 +2,20 @@ import re
 from urllib.parse import urlparse, parse_qs
 
 import streamlit as st
-from pytubefix import Playlist, YouTube
+import yt_dlp
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import (
     TranscriptsDisabled,
     NoTranscriptFound,
     VideoUnavailable,
 )
+
+YDL_OPTS = {
+    'quiet': True,
+    'no_warnings': True,
+    'extract_flat': True,
+    'skip_download': True,
+}
 
 LANGUAGE_PRIORITY = ['he', 'iw', 'en', 'en-US', 'en-GB']
 
@@ -177,13 +184,30 @@ def get_transcript_text(video_id):
 
 def get_video_info(url):
     try:
-        yt = YouTube(url)
-        return yt.title, yt.video_id
+        with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
+            info = ydl.extract_info(url, download=False)
+            return info.get('title'), info.get('id')
     except Exception:
         video_id = extract_video_id(url)
         if video_id:
             return None, video_id
         return None, None
+
+
+def get_playlist_info(url):
+    with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
+        info = ydl.extract_info(url, download=False)
+        title = info.get('title', 'playlist')
+        entries = info.get('entries', [])
+        videos = []
+        for entry in entries:
+            if entry:
+                videos.append({
+                    'id': entry.get('id'),
+                    'title': entry.get('title'),
+                    'url': entry.get('url') or f"https://www.youtube.com/watch?v={entry.get('id')}",
+                })
+        return title, videos
 
 
 def process_single_video(url):
@@ -219,14 +243,12 @@ def process_single_video(url):
 def process_playlist(url):
     with st.spinner('Loading playlist...'):
         try:
-            playlist = Playlist(url)
-            playlist_title = playlist.title or 'playlist'
-            video_urls = list(playlist.video_urls)
+            playlist_title, videos = get_playlist_info(url)
         except Exception as e:
             st.error(f'Error loading playlist: {e}')
             return
 
-    total = len(video_urls)
+    total = len(videos)
     if total == 0:
         st.warning('The playlist is empty — no videos found.')
         return
@@ -239,14 +261,9 @@ def process_playlist(url):
     success_count = 0
     fail_count = 0
 
-    for i, video_url in enumerate(video_urls):
-        try:
-            title, video_id = get_video_info(video_url)
-        except Exception:
-            video_id = extract_video_id(video_url)
-            title = None
-
-        display_title = title or video_id or f'Video {i + 1}'
+    for i, video in enumerate(videos):
+        video_id = video['id']
+        display_title = video['title'] or video_id or f'Video {i + 1}'
         progress_bar.progress((i + 1) / total, text=f'[{i + 1}/{total}] {display_title}')
 
         if not video_id:
